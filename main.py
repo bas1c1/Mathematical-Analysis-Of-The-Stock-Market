@@ -1,5 +1,5 @@
 import yfinance as yf
-import pandas
+import pandas as pd
 
 def get_stock_data(symbol, start_date, end_date):
     stock = yf.Ticker(symbol)
@@ -78,6 +78,9 @@ import matplotlib.lines as mlines
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import PySimpleGUI as sg
 import matplotlib
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import MinMaxScaler
 matplotlib.use('TkAgg')
 
 def draw_figure(canvas, figure):
@@ -106,19 +109,21 @@ layout = [
 			[sg.Text("Введите стартовую дату показа акций (Например: 2021-01-01)"), sg.InputText()],
 			[sg.Text("Введите конечную дату показа акций (Например: 2024-01-01)"), sg.InputText()],
 			[sg.Checkbox("RSI", key='rsi'), sg.Checkbox("MACD", key='macd'), sg.Checkbox("MA", key='ma'), sg.Checkbox("SuperTrend", key='supertrend'), sg.Checkbox("TSI", key='tsi')],
-			[sg.Canvas(key='-CANVAS-')],
+			[sg.Canvas(key='-CANVAS-'), sg.Canvas(key='-CANVAS2-')],
 			[sg.Text("Введите за какой период показать скользящее среднее (Например: 20)"), sg.InputText()],
 			[sg.Text("Введите диапозон цены"), sg.InputText(), sg.InputText()],
 			[sg.Text("Введите диапозон даты"), sg.InputText(), sg.InputText()],
 			[sg.Button('Update')]
 			]
-window = sg.Window('Анализ состояния рынка акции', layout, size=(1300, 1000), finalize=True, element_justification='center', font='Helvetica 18')
+window = sg.Window('Анализ состояния рынка акции', layout, size=(1800, 1500), finalize=True, element_justification='center', font='Helvetica 18')
 
-fig, ax = plt.subplots()
+fig, ax = plt.subplots(nrows= 2, ncols= 1)
 fig.set_figwidth(640)
 fig.set_figheight(320)
 fig.set_size_inches(12.0, 6.0)
 draw_figure(window['-CANVAS-'].TKCanvas, fig)
+#fig2 = plt.figure(figsize=(10, 6))
+#draw_figure(window['-CANVAS2-'].TKCanvas, fig2)
 
 def create_collection(df):
     l = len(df)
@@ -169,39 +174,89 @@ while True:
 	print(data)
 	
 	collection, lines = create_collection(data)
-	ax.cla()
+	ax[0].cla()
+	ax[1].cla()
 
-	ax.add_collection(collection)
-	[ax.add_line(lines[i]) for i in range(len(data))]
+	ax[0].add_collection(collection)
+	[ax[0].add_line(lines[i]) for i in range(len(data))]
 
 	if values["ma"] == True:
 		data['MA'] = data['Close'].rolling(window=int(values[3])).mean()
-		plt.plot(data['MA'], label=f'Скользящее среднее {int(values[3])} дней')
+		ax[0].plot(data['MA'], label=f'Скользящее среднее {int(values[3])} дней')
 	if values["rsi"] == True:
-		plt.plot(data['RSI'], label='Индикатор RSI')
+		ax[0].plot(data['RSI'], label='Индикатор RSI')
 	if values["macd"] == True:
-		plt.plot(data['macd'], label='Индикатор MACD')
+		ax[0].plot(data['macd'], label='Индикатор MACD')
 	if values["supertrend"] == True:
-		plt.plot(data['supertrend'], label='Индикатор SuperTrend')
+		ax[0].plot(data['supertrend'], label='Индикатор SuperTrend')
 	if values["tsi"] == True:
-		plt.plot(data['tsi'], label='Индикатор TSI')
-	plt.xlabel('Дата')
-	plt.ylabel('Цена (USD)')
-	plt.title('Анализ состояния рынка акции')
+		ax[0].plot(data['tsi'], label='Индикатор TSI')
+	#ax[0].xlabel('Дата')
+	#ax[0].ylabel('Цена (USD)')
+	#ax[0].title('Анализ состояния рынка акции')
 	#plt.axis([0, 100])
 	if values[6] != "":
-		ax.set_xlim(int(values[6]), int(values[7]))
+		ax[0].set_xlim(int(values[6]), int(values[7]))
 	elif values["ma"] != True and values["rsi"] != True and values["macd"] != True and values["tsi"] != True and values["supertrend"] != True:
-		ax.set_xlim(0, len(data))
+		ax[0].set_xlim(0, len(data))
 	if values[4] != "":
-		ax.set_ylim(int(values[4]), int(values[5]))
+		ax[0].set_ylim(int(values[4]), int(values[5]))
 	elif values["ma"] != True and values["rsi"] != True and values["macd"] != True and values["tsi"] != True and values["supertrend"] != True:
-		ax.set_ylim(min(list(map(int, data['Close']))), max(list(map(int, data['Close']))))
+		ax[0].set_ylim(min(list(map(int, data['Close']))), max(list(map(int, data['Close']))))
 		#print(data['Close'][0])
 		#print(type(data['Close'][0]))
 		#print(min(list(map(int, data['Close']))))
-	plt.legend()
-	data.to_csv(f"{values[0]}.csv", sep=',', index=False, encoding='utf-8')
+	fig.supxlabel('Дата')
+	fig.supylabel('Цена (USD)')
+	#plt.title('Анализ состояния рынка акции')
+	symbol1 = values[0]
+	fig.suptitle(f"Анализ состояния рынка акции {symbol1}")
+	#fig.legend()
+	#fig.canvas.draw()
+
+	data2 = data.copy()
+
+	data2['Date'] = pd.to_datetime(data['Date'])
+
+	# Добавляем дополнительные признаки
+	data2['Price_Change'] = data2['Open'] - data2['Close']  # Изменение цены относительно предыдущего закрытия
+	data2['Price_Ratio'] = data2['Open'] / data2['Close']   # Отношение текущей цены к предыдущему закрытию
+
+	# Удаляем ненужные столбцы
+	data2 = data2.drop(columns=['Close'])  
+
+	# Заполнение отсутствующих значений в данных, если они есть
+	data2 = data2.fillna(method='ffill')  # Заполняем пропущенные значения предыдущими значениями вперед
+
+	# Нормализация данных
+	scaler = MinMaxScaler()
+	scaled_data = scaler.fit_transform(data2.drop(columns=['Date'])) # Нормализуем все признаки, кроме даты
+
+	# Преобразование данных обратно в DataFrame
+	scaled_data = pd.DataFrame(scaled_data, columns=data2.columns[1:]) # Исключаем столбец 'Date'
+
+	# Добавляем столбец 'Date' обратно
+	scaled_data['Date'] = data2['Date'].values
+
+	# Разделение данных на обучающую и тестовую выборки
+	X = scaled_data.drop(columns=['Open', 'Date'])  # Используем все признаки, кроме цены и даты
+	y = scaled_data['Open']
+
+	X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+	# Обучение модели случайного леса
+	model = RandomForestRegressor(n_estimators=100, random_state=42)
+	model.fit(X_train, y_train)
+
+	# Прогнозирование цен на акцию для тестовой выборки
+	y_pred = model.predict(X_test)
+
+	ax[1].scatter(X_test.index, y_test, color='black', label='Настоящая цена')
+	ax[1].scatter(X_test.index, y_pred, color='blue', label='Спрогнозированная цена')
+	ax[0].legend()
+	ax[1].legend()
+	data2.to_csv(f"{values[0]}.csv", sep=',', index=False, encoding='utf-8')
+	
 	fig.canvas.draw()
 
 window.close()
